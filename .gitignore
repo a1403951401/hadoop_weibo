@@ -1,0 +1,4 @@
+.idea/
+*.pyc
+weibo.7z
+docker/base/hadoop-3.2.1.*

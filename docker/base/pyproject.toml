@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "weibo"
+version = "0.1.0"
+description = ""
+authors = ["Martin <1403951401@qq.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+mrjob = "^0.7.4"
+PyHDFS = "^0.3.1"
+pydantic = "^1.8.1"
+loguru = "^0.5.3"
+lxml = "^4.6.3"
+requests = "^2.25.1"
+happybase = "^1.2.0"
+urllib3 = "1.25.8"
+
+[tool.poetry.dev-dependencies]
+
+[[tool.poetry.source]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
