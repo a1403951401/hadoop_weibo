@@ -43,10 +43,21 @@ hbase = Hbase()
 
 if __name__ == '__main__':
     from loguru import logger
-    from model import User
+    from model import User, WeiBo
 
     # 遍历 user 表
     for k, v in hbase.table("user").scan():
         logger.info('*' * 45 + k.decode("utf-8") + "*" * 45)
-        User(**hbase.format_dict(v)).print()
+        u = User(**hbase.format_dict(v))
+        u.print()
+        # 遍历 weibo 表
+        if wb := hbase.table("weibo").scan(
+                filter=f"SingleColumnValueFilter('info', 'user_id', =, 'binary:{u.info.user_id}')"):
+            for _, wv in wb:
+                logger.info('*' * 100)
+                try:
+                    WeiBo(**hbase.format_dict(wv)).print()
+                except:
+                    WeiBo(**hbase.format_dict(wv)).print()
         logger.info('*' * 100)
+        logger.info("")

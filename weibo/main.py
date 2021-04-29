@@ -21,6 +21,8 @@ def clean_path(path: str):
 
 
 def main():
+    t = time.time()
+    logger.info("开始执行...")
     # 清理日志
     hadoop.delete(config.HADOOP_LOG_PATH, recursive=True)
     clean_path(config.LOCAL_LOG_PATH)
@@ -40,6 +42,9 @@ def main():
         if hadoop.download_log():
             break
         time.sleep(0.1)
+    m, s = divmod(int(time.time() - t), 60)
+    h, m = divmod(m, 60)
+    logger.info("运行结束，共耗时:{0:02d}:{1:02d}:{2:02d}".format(h, m, s))
 
 
 if __name__ == '__main__':

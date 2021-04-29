@@ -1,4 +1,6 @@
-#-*-coding:utf-8 -*-
+# -*-coding:utf-8 -*-
+from typing import Dict
+
 from loguru import logger
 from pydantic import BaseModel
 
@@ -48,7 +50,48 @@ class UserInfo(BaseModel):
             "verified": "是否认证",
             "verified_type": "认证类型",
             "verified_reason": "认证信息",
-            "profile_url":"微博主页"
+            "profile_url": "微博主页"
+        }
+        for k, v in self.dict().items():
+            logger.info(f"{keymap.get(k, k)}={v}")
+
+
+class WeiBoInfo(BaseModel):
+    user_id: str = ""
+    screen_name: str = ""
+    id: str = ""
+    bid: str = ""
+    text: str = ""
+    article_url: str = ""
+    pics: str = ""
+    video_url: str = ""
+    location: str = ""
+    created_at: str = ""
+    source: str = ""
+    attitudes_count: str = ""
+    comments_count: str = ""
+    reposts_count: str = ""
+    topics: str = ""
+    at_users: str = ""
+
+    def print(self):
+        keymap = {
+            "user_id": "用户id",
+            "screen_name": "昵称",
+            "id": "id",
+            "bid": "bid",
+            "text": "正文",
+            "article_url": "头条文章url",
+            "pics": "原始图片url",
+            "video_url": "视频url",
+            "location": "位置",
+            "created_at": "日期",
+            "source": "工具",
+            "attitudes_count": "点赞数",
+            "comments_count": "评论数",
+            "reposts_count": "转发数",
+            "topics": "话题",
+            "at_users": "@用户"
         }
         for k, v in self.dict().items():
             logger.info(f"{keymap.get(k, k)}={v}")
@@ -59,3 +102,18 @@ class User(BaseModel):
 
     def print(self):
         self.info.print()
+
+
+class WeiBo(BaseModel):
+    info: WeiBoInfo
+    img: Dict[str, str] = None
+    video: Dict[str, str] = None
+
+    def print(self):
+        self.info.print()
+        if self.img:
+            for file_name, url in self.img.items():
+                logger.info(f"img:{file_name}={url}")
+        if self.video:
+            for file_name, url in self.video.items():
+                logger.info(f"video:{file_name}={url}")

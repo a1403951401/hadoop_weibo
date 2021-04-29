@@ -15,20 +15,24 @@ from datetime import date, datetime, timedelta
 from time import sleep
 
 import requests
+
 requests.packages.urllib3.disable_warnings()
 from loguru import logger
 from lxml import etree
-from requests.adapters import HTTPAdapter
 
 from hbase import hbase
-from model import UserInfo
+from model import UserInfo, WeiBoInfo
 
 warnings.filterwarnings("ignore")
 
+from config import weibo_config
 
 class Weibo(object):
-    def __init__(self, config):
+    def __init__(self, user_id_list, config=None):
         """Weibo类初始化"""
+        if not config:
+            config = weibo_config
+        config['user_id_list'] = user_id_list
         self.validate_config(config)
         self.filter = config[
             'filter']  # 取值范围为0、1,程序默认值为0,代表要爬取用户的全部微博,1代表只爬取用户的原创微博
@@ -55,7 +59,6 @@ class Weibo(object):
         user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.111 Safari/537.36'
         self.headers = {'User_Agent': user_agent, 'Cookie': cookie}
         self.mysql_config = config.get('mysql_config')  # MySQL数据库连接配置，可以不填
-        user_id_list = config['user_id_list']
         query_list = config.get('query_list') or []
         if isinstance(query_list, str):
             query_list = query_list.split(',')
@@ -82,7 +85,7 @@ class Weibo(object):
         self.weibo = []  # 存储爬取到的所有微博信息
         self.weibo_id_list = []  # 存储爬取到的所有微博id
         self.proxies = requests.get(
-            "http://api.hailiangip.com:8422/api/getIp?type=1&num=1&pid=&unbindTime=60&cid=&orderId=O21042810412537647150&time=1619577728&sign=d79086f5b8ba9dbe1a17e5b710b77032&noDuplicate=1&dataType=0&lineSeparator=0&singleIp="
+            "http://api.hailiangip.com:8422/api/getIp?type=1&num=1&pid=&unbindTime=600&cid=&orderId=O21042810412537647150&time=1619577728&sign=d79086f5b8ba9dbe1a17e5b710b77032&noDuplicate=1&dataType=0&lineSeparator=0&singleIp="
         ).json()['data'][0]
         logger.info({
             "http": f"http://{self.proxies['ip']}:{self.proxies['port']}",
@@ -299,35 +302,9 @@ class Weibo(object):
             video_url_list += live_photo_list
         return ';'.join(video_url_list)
 
-    def download_one_file(self, url, file_path, type, weibo_id):
+    def download_one_file(self, url, file_name, type, weibo_id):
         """下载单个文件(图片/视频)"""
-        try:
-            if not os.path.isfile(file_path):
-                s = requests.Session()
-                s.mount(url, HTTPAdapter(max_retries=5))
-                flag = True
-                try_count = 0
-                while flag and try_count < 5:
-                    flag = False
-                    downloaded = s.get(url,
-                                       headers=self.headers,
-                                       timeout=(5, 10),
-                                       verify=False)
-                    try_count += 1
-                    if (url.endswith(('jpg', 'jpeg'))
-                        and not downloaded.content.endswith(b'\xff\xd9')
-                    ) or (url.endswith('png') and
-                          not downloaded.content.endswith(b'\xaeB`\x82')):
-                        flag = True
-                with open(file_path, 'wb') as f:
-                    f.write(downloaded.content)
-        except Exception as e:
-            error_file = self.get_filepath(
-                type) + os.sep + 'not_downloaded.txt'
-            with open(error_file, 'ab') as f:
-                url = str(weibo_id) + ':' + file_path + ':' + url + '\n'
-                f.write(url.encode(sys.stdout.encoding))
-            logger.exception(e)
+        hbase.update("weibo", str(weibo_id), {"img" if type == "img" else "video": {file_name: url}})
 
     def handle_download(self, file_type, file_dir, urls, w):
         """处理下载相关操作"""
@@ -343,8 +320,7 @@ class Weibo(object):
                     else:
                         file_suffix = url[index:]
                     file_name = file_prefix + '_' + str(i + 1) + file_suffix
-                    file_path = file_dir + os.sep + file_name
-                    self.download_one_file(url, file_path, file_type, w['id'])
+                    self.download_one_file(url, file_name, file_type, w['id'])
             else:
                 index = urls.rfind('.')
                 if len(urls) - index > 5:
@@ -352,8 +328,7 @@ class Weibo(object):
                 else:
                     file_suffix = urls[index:]
                 file_name = file_prefix + file_suffix
-                file_path = file_dir + os.sep + file_name
-                self.download_one_file(urls, file_path, file_type, w['id'])
+                self.download_one_file(urls, file_name, file_type, w['id'])
         else:
             file_suffix = '.mp4'
             if ';' in urls:
@@ -362,14 +337,12 @@ class Weibo(object):
                     file_suffix = '.mov'
                 for i, url in enumerate(url_list):
                     file_name = file_prefix + '_' + str(i + 1) + file_suffix
-                    file_path = file_dir + os.sep + file_name
-                    self.download_one_file(url, file_path, file_type, w['id'])
+                    self.download_one_file(url, file_name, file_type, w['id'])
             else:
                 if urls.endswith('.mov'):
                     file_suffix = '.mov'
                 file_name = file_prefix + file_suffix
-                file_path = file_dir + os.sep + file_name
-                self.download_one_file(urls, file_path, file_type, w['id'])
+                self.download_one_file(urls, file_name, file_type, w['id'])
 
     def download_files(self, file_type, weibo_type, wrote_count):
         """下载文件(图片/视频)"""
@@ -529,18 +502,18 @@ class Weibo(object):
     def print_one_weibo(self, weibo):
         """打印一条微博"""
         try:
-            logger.info(u'微博id：%d', weibo['id'])
-            logger.info(u'微博正文：%s', weibo['text'])
-            logger.info(u'原始图片url：%s', weibo['pics'])
-            logger.info(u'微博位置：%s', weibo['location'])
-            logger.info(u'发布时间：%s', weibo['created_at'])
-            logger.info(u'发布工具：%s', weibo['source'])
-            logger.info(u'点赞数：%d', weibo['attitudes_count'])
-            logger.info(u'评论数：%d', weibo['comments_count'])
-            logger.info(u'转发数：%d', weibo['reposts_count'])
-            logger.info(u'话题：%s', weibo['topics'])
-            logger.info(u'@用户：%s', weibo['at_users'])
-            logger.info(u'url：https://m.weibo.cn/detail/%d', weibo['id'])
+            logger.info(u'微博id：{}', weibo['id'])
+            logger.info(u'微博正文：{}', weibo['text'])
+            logger.info(u'原始图片url：{}', weibo['pics'])
+            logger.info(u'微博位置：{}', weibo['location'])
+            logger.info(u'发布时间：{}', weibo['created_at'])
+            logger.info(u'发布工具：{}', weibo['source'])
+            logger.info(u'点赞数：{}', weibo['attitudes_count'])
+            logger.info(u'评论数：{}', weibo['comments_count'])
+            logger.info(u'转发数：{}', weibo['reposts_count'])
+            logger.info(u'话题：{}', weibo['topics'])
+            logger.info(u'@用户：{}', weibo['at_users'])
+            logger.info(u'url：https://m.weibo.cn/detail/{}', weibo['id'])
         except OSError:
             pass
 
@@ -635,6 +608,8 @@ class Weibo(object):
                                     return True
                             if (not self.filter) or (
                                     'retweet' not in wb.keys()):
+                                hbase.check_create_table("weibo", {"info": {}, "img": {}, "video": {}})
+                                hbase.update("weibo", str(wb['id']), {"info": WeiBoInfo(**wb).dict(), "img": {}, "video": {}})
                                 self.weibo.append(wb)
                                 self.weibo_id_list.append(wb['id'])
                                 self.got_count += 1
@@ -996,35 +971,35 @@ class Weibo(object):
         try:
             self.get_user_info()
             self.print_user_info()
-            # since_date = datetime.strptime(self.user_config['since_date'],
-            #                                '%Y-%m-%d')
-            # today = datetime.strptime(str(date.today()), '%Y-%m-%d')
-            # if since_date <= today:
-            #     page_count = self.get_page_count()
-            #     wrote_count = 0
-            #     page1 = 0
-            #     random_pages = random.randint(1, 5)
-            #     self.start_date = datetime.now().strftime('%Y-%m-%d')
-            #     for page in range(self.start_page, page_count + 1):
-            #         is_end = self.get_one_page(page)
-            #         if is_end:
-            #             break
-            #
-            #         if page % 20 == 0:  # 每爬20页写入一次文件
-            #             self.write_data(wrote_count)
-            #             wrote_count = self.got_count
-            #
-            #         # 通过加入随机等待避免被限制。爬虫速度过快容易被系统限制(一段时间后限
-            #         # 制会自动解除)，加入随机等待模拟人的操作，可降低被系统限制的风险。默
-            #         # 认是每爬取1到5页随机等待6到10秒，如果仍然被限，可适当增加sleep时间
-            #         if (page -
-            #             page1) % random_pages == 0 and page < page_count:
-            #             sleep(random.randint(6, 10))
-            #             page1 = page
-            #             random_pages = random.randint(1, 5)
-            #
-            #     self.write_data(wrote_count)  # 将剩余不足20页的微博写入文件
-            # logger.info(u'微博爬取完成，共爬取%d条微博', self.got_count)
+            since_date = datetime.strptime(self.user_config['since_date'],
+                                           '%Y-%m-%d')
+            today = datetime.strptime(str(date.today()), '%Y-%m-%d')
+            if since_date <= today:
+                page_count = self.get_page_count()
+                wrote_count = 0
+                page1 = 0
+                random_pages = random.randint(1, 5)
+                self.start_date = datetime.now().strftime('%Y-%m-%d')
+                for page in range(self.start_page, page_count + 1):
+                    is_end = self.get_one_page(page)
+                    if is_end:
+                        break
+
+                    if page % 20 == 0:  # 每爬20页写入一次文件
+                        self.write_data(wrote_count)
+                        wrote_count = self.got_count
+
+                    # 通过加入随机等待避免被限制。爬虫速度过快容易被系统限制(一段时间后限
+                    # 制会自动解除)，加入随机等待模拟人的操作，可降低被系统限制的风险。默
+                    # 认是每爬取1到5页随机等待6到10秒，如果仍然被限，可适当增加sleep时间
+                    if (page -
+                        page1) % random_pages == 0 and page < page_count:
+                        sleep(random.randint(6, 10))
+                        page1 = page
+                        random_pages = random.randint(1, 5)
+
+                self.write_data(wrote_count)  # 将剩余不足20页的微博写入文件
+            logger.info(u'微博爬取完成，共爬取%d条微博', self.got_count)
         except Exception as e:
             logger.exception(e)
 
@@ -1090,19 +1065,7 @@ def get_config():
 
 
 def test():
-    wb = Weibo({
-        "user_id_list": ["1669879400"],
-        "filter": 1,
-        "since_date": "2021-01-01",
-        "start_page": 1,
-        "write_mode": ["csv"],
-        "original_pic_download": 0,
-        "retweet_pic_download": 0,
-        "original_video_download": 0,
-        "retweet_video_download": 0,
-        "result_dir_name": 0,
-    })
-    wb.start()
+    Weibo(["1669879400"]).start()
 
 if __name__ == '__main__':
     test()

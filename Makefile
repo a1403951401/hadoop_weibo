@@ -2,7 +2,6 @@ POD?=$(shell docker ps -q -a)
 IMAGES?=$(shell docker images -q)
 
 build:
-	docker build -t hadoop/base -f ./docker/base/Dockerfile ./docker/base
 	docker build -t hadoop/datanode -f ./docker/datanode/Dockerfile ./docker/datanode
 	docker build -t hadoop/historyserver -f ./docker/historyserver/Dockerfile ./docker/historyserver
 	docker build -t hadoop/namenode -f ./docker/namenode/Dockerfile ./docker/namenode

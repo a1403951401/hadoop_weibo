@@ -1,4 +1,4 @@
-FROM hadoop/base
+FROM registry.cn-shanghai.aliyuncs.com/martin_hadoop/base:latest
 
 MAINTAINER Martin <1403951401@qq.com>
 
